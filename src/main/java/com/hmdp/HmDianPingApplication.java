@@ -12,4 +12,4 @@ public class HmDianPingApplication {
         SpringApplication.run(HmDianPingApplication.class, args);
     }
 
-}
+ }
