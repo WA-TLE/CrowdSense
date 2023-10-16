@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RestController;
  *  前端控制器
  * </p>
  *
- * @author 虎哥
- * @since 2021-12-22
+ * @author dy
+ * @since 2023/10/16 10:06
  */
 @RestController
 @RequestMapping("/blog-comments")
