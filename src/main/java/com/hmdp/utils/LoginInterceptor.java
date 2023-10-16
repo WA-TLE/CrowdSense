@@ -25,58 +25,19 @@ import static com.hmdp.utils.RedisConstants.LOGIN_USER_TTL;
 @Slf4j
 public class LoginInterceptor implements HandlerInterceptor {
 
-    //  这里的 Redis 要通过 构造方法来获取, 因为这个类并没有被 Spring 管理
-    private StringRedisTemplate stringRedisTemplate;
-
-    public LoginInterceptor(StringRedisTemplate stringRedisTemplate) {
-        this.stringRedisTemplate = stringRedisTemplate;
-    }
-
-
-
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        //  1. 获取请求头中的 token
-        String token = request.getHeader("authorization");
 
-        log.info("获取到的 token: {}", token);
+        //  此拦截器用来判断用户是否登陆
 
-        //  判断是否没有获取到 token
-        if (StrUtil.isBlank(token)) {
-            log.info("返回 401 错误!!!!");
+        //  上一个拦截器已经将用户放入到 ThreadLocal 中, 如果不能获取, 说明用户没有登陆
+        if (UserHolder.getUser() == null) {
             response.setStatus(401);
             return false;
         }
 
-        String key = LOGIN_USER_KEY + token;
-
-        //  2. 根据 token 获取 User 对象
-        Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(key);
-
-        //  3. 判断用户是否为 null
-        if (userMap.isEmpty()) {
-            //  4. 用户不存在
-            log.info("用户不存在");
-            response.setStatus(401);
-            return false;
-        }
-
-        //  5. 将获取到的 HashMap 转换为 User 对象
-        UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
-
-        //  6. 将 User 对象添加到 ThreadLocal 中
-        UserHolder.saveUser(userDTO);
-
-
-        //  7. 刷新 token 有限期
-        stringRedisTemplate.expire(key, LOGIN_USER_TTL, TimeUnit.MINUTES);
-        //  8. 放行
-
+        //  用户登录, 放行
         return true;
     }
 
-    @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        HandlerInterceptor.super.afterCompletion(request, response, handler, ex);
-    }
 }
