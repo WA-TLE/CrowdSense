@@ -20,6 +20,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 import java.util.HashMap;
@@ -134,10 +135,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         User user = User.builder()
                 .phone(phone)
                 .nickName(USER_NICK_NAME_PREFIX + RandomUtil
-                        .randomString(10)).build();
+                        .randomString(10))
+                .build();
 
         //  保存用户
         save(user);
         return user;
+    }
+
+    @Override
+    public Result logout(HttpServletRequest request) {
+        String token = request.getHeader("authorization");
+        String key = LOGIN_USER_KEY + token;
+        stringRedisTemplate.delete(key);
+        return Result.ok("您已成功退出登录~");
     }
 }

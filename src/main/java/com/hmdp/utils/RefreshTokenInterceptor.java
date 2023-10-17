@@ -40,8 +40,6 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
         //  1. 获取请求头中的 token
         String token = request.getHeader("authorization");
 
-        log.info("获取到的 token: {}", token);
-
         //  判断是否没有获取到 token
 
         if (StrUtil.isBlank(token)) {
@@ -75,9 +73,13 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
         return true;
     }
 
-    // TODO: 2023/10/16 这个方法的作用!!!
+    //  2023/10/16 这个方法的作用!!!
+    //  在每个请求结束后, 从 ThreadLocal 中移除用户信息
+    //  为什么非要移除? (ThreadLocal 可以自行销毁)
+    //  1. 线程池重用    2. 内存泄露     3. 规范性
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        HandlerInterceptor.super.afterCompletion(request, response, handler, ex);
+        // 从ThreadLocal中移除用户信息
+        UserHolder.removeUser();
     }
 }
