@@ -11,10 +11,14 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 
+import java.util.concurrent.TimeUnit;
+
 import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
+import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
 
 /**
  * <p>
@@ -65,10 +69,38 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //  6. 查出店铺信息, 加入缓存
         String jsonShop = JSONUtil.toJsonStr(shop);
 
-        stringRedisTemplate.opsForValue().set(key, jsonShop);
+        //  加入 缓存超时时间
+        stringRedisTemplate.opsForValue().set(key, jsonShop, CACHE_SHOP_TTL, TimeUnit.MINUTES);
 
 
         //  7. 返回数据给前端
         return Result.ok(shop);
+    }
+
+    /**
+     * 根据 id 更新商铺信息
+     *
+     * @param shop
+     * @return
+     */
+    @Transactional
+    public Result updateShopById(Shop shop) {
+
+        //  0. 判断店铺 id 是否存在
+        Long id = shop.getId();
+        if (id == null) {
+            Result.fail("店铺信息有误, 请重新操作");
+        }
+
+        //  店铺缓存对应 key
+        String key = CACHE_SHOP_KEY + id;
+
+        //  1. 更新数据库
+        updateById(shop);
+
+        //  2. 删除对应缓存
+        stringRedisTemplate.delete(key);
+
+        return Result.ok();
     }
 }
