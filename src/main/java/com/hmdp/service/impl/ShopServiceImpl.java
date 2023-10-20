@@ -1,7 +1,6 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.extra.ssh.JschUtil;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
@@ -17,8 +16,7 @@ import javax.annotation.Resource;
 
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
+import static com.hmdp.utils.RedisConstants.*;
 
 /**
  * <p>
@@ -57,11 +55,22 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             return Result.ok(shopBean);
         }
 
+        //  判断查询出的是否为 ""
+        //  因为上面已经判断过是否有值了, 现在就剩两种情况
+        //  要么为 null, 要么 是 ""
+        if (cacheShop != null) {
+            return Result.fail("店铺不存在~");
+        }
+
+
         //  4. 未查询到结果, 从数据库中查询店铺
         Shop shop = getById(id);
 
 
         if (shop == null) {
+
+            //  解决缓存穿透问题, 添加空值
+            stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
             //  5. 数据库中没有结果, 返回异常信息
             return Result.fail("您所查询的店铺不存在");
         }
