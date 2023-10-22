@@ -29,4 +29,6 @@ public interface IShopService extends IService<Shop> {
      * @return
      */
     Result updateShopById(Shop shop);
+
+    void saveShopRedis(long l, long l1) throws InterruptedException;
 }

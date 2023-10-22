@@ -39,7 +39,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
      */
     public Result queryTypeList() {
 
-        // TODO: 2023/10/21 第一次查询无法返回到前端???
+
         String key = SHOP_TYPE_KEY;
         //  编写业务流程
 
@@ -72,7 +72,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
         stringRedisTemplate.opsForValue().set(key, jsonShopList);
 
 
-
+        // TODO: 2023/10/22 这里应该返回店铺类型信息
         return null;
     }
 }
