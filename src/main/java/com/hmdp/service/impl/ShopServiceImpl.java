@@ -64,7 +64,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
       //  Shop shop = queryWithLogicalExpire(id);
 
         //  封装缓存穿透代码
-        Shop shop = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
+//        Shop shop = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        Shop shop = cacheClient.queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
 
         return Result.ok(shop);
     }
@@ -333,10 +334,12 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
         //  封装逻辑过期时间
         RedisData redisData = new RedisData();
-        redisData.setData(shop);
-        redisData.setExpireTime(LocalDateTime.now().plusMinutes(expireSecond));
+        redisData.setData(shop);        // TODO: 2023/10/23 逻辑过期时间, 这里应该更改一下
+        redisData.setExpireTime(LocalDateTime.now().plusSeconds(expireSecond));
 
         //  写入 Redis
         stringRedisTemplate.opsForValue().set(CACHE_SHOP_KEY + id, JSONUtil.toJsonStr(redisData));
     }
+
+
 }

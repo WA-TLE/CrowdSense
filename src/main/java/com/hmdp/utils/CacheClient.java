@@ -1,6 +1,8 @@
 package com.hmdp.utils;
 
+import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.entity.Shop;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +11,8 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -25,6 +29,10 @@ public class CacheClient {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    //  线程池
+    private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
+
 
 
     /**
@@ -108,6 +116,95 @@ public class CacheClient {
 
         //  7. 返回数据给前端
         return r;
+    }
+
+
+    /**
+     * 使用逻辑过期解决缓存击穿问题
+     *
+     * @param keyPrefix
+     * @param id
+     * @param type
+     * @param dbFallback
+     * @param time
+     * @param unit
+     * @return
+     * @param <R>
+     * @param <ID>
+     */
+    public <R, ID> R queryWithLogicalExpire(
+            String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit) {
+        String key = keyPrefix + id;
+
+        //  1. 从 Redis 中查询店铺信息
+        String cacheShop = stringRedisTemplate.opsForValue().get(key);
+
+        //  2. Redis 不存在店铺信息, 这个适用于秒杀, 我们一般提前放入商品并且添加逻辑过期时间
+        if (StrUtil.isBlank(cacheShop)) {
+            return null;
+        }
+
+        //  4. 命中, 需要将 json 反序列化为 Java 对象, 判断是否逻辑过期
+        RedisData redisData = JSONUtil.toBean(cacheShop, RedisData.class);
+        JSONObject data = (JSONObject) redisData.getData();
+        R r = JSONUtil.toBean(data, type);
+
+        LocalDateTime expireTime = redisData.getExpireTime();
+
+        //  5. 判断是否过期
+        if (expireTime.isAfter(LocalDateTime.now())) {
+            log.info("未过期, 返回店铺信息");
+            return r;
+        }
+
+
+        //  5.2 过期
+        //  6. 缓存重建
+        //  6.1 尝试获取 互斥锁
+        String lockKey = LOCK_SHOP_KEY + id;
+        boolean isLock = tryLocal(lockKey);
+        //  6.2 成功, 开启一个线程, 进行缓存重建
+
+
+
+        if (isLock) {
+            log.info("获取互斥锁成功, 进行缓存重建.....");
+            CACHE_REBUILD_EXECUTOR.submit(() -> {
+
+                try {
+                    log.info("开启新线程重建缓存");
+
+                    Thread.sleep(100);
+
+                    //  从数据库查询
+                    R newR = dbFallback.apply(id);
+                    //  重建缓存
+                    this.setWithLogicalExpire(key, newR, time, unit);
+
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    unlock(lockKey);
+                }
+            });
+        }
+        log.info("返回旧数据.....");
+        //  6.3 成功, 未成功, 直接返回旧数据
+        return r;
+    }
+
+    //  获取互斥锁
+    private boolean tryLocal(String key) {
+        Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", 10, TimeUnit.SECONDS);
+
+        //  这里不能直接返回 flag, 将 Boolean 直接返回的话, 是会做拆箱的, 这样可能会出现空指针
+        return BooleanUtil.isTrue(flag);
+    }
+
+    //  释放互斥锁
+    private void unlock(String key) {
+        //  这里直接删除即可, 无需返回值
+        stringRedisTemplate.delete(key);
     }
 
 
