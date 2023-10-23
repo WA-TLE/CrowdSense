@@ -9,6 +9,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,6 +40,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private CacheClient cacheClient;
+
+
     //  线程池
     private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
 
@@ -56,7 +61,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 //        Shop shop = queryWithMutex(id);
 
         //  使用逻辑删除解决缓存穿透问题
-        Shop shop = queryWithLogicalExpire(id);
+      //  Shop shop = queryWithLogicalExpire(id);
+
+        //  封装缓存穿透代码
+        Shop shop = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
 
         return Result.ok(shop);
     }
@@ -322,10 +330,11 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         Shop shop = getById(id);
         Thread.sleep(200);
 
+
         //  封装逻辑过期时间
         RedisData redisData = new RedisData();
         redisData.setData(shop);
-        redisData.setExpireTime(LocalDateTime.now().plusSeconds(expireSecond));
+        redisData.setExpireTime(LocalDateTime.now().plusMinutes(expireSecond));
 
         //  写入 Redis
         stringRedisTemplate.opsForValue().set(CACHE_SHOP_KEY + id, JSONUtil.toJsonStr(redisData));
