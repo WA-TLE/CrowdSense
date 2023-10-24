@@ -49,7 +49,7 @@ public class RedisIdWorker {
         String data = now.format(DateTimeFormatter.ofPattern("yyyy:MM:dd"));
 
         //  2.2 自增长, 获取 Redis 的 key
-        Long count = stringRedisTemplate.opsForValue().increment("icr:" + keyPrefix + ":" + data);
+        Long count = stringRedisTemplate.opsForValue().increment("icr:" + keyPrefix + ":" + data + ":");
 
         //  3. 拼接并返回
 
