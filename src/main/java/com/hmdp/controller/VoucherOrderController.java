@@ -5,6 +5,7 @@ import com.hmdp.dto.Result;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.service.IVoucherService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,6 +23,7 @@ import javax.annotation.Resource;
  */
 @RestController
 @RequestMapping("/voucher-order")
+@Slf4j
 public class VoucherOrderController {
 
     @Resource
@@ -35,6 +37,7 @@ public class VoucherOrderController {
      */
     @PostMapping("seckill/{id}")
     public Result seckillVoucher(@PathVariable("id") Long voucherId) {
+        log.info("开始秒杀优惠卷~");
         return voucherOrderService.seckillVoucher(voucherId);
     }
 }
