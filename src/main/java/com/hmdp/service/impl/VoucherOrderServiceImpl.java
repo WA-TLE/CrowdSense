@@ -8,8 +8,10 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private RedisIdWorker redisIdWorker;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
      * 优惠卷秒杀
@@ -61,17 +66,33 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足!");
         }
 
+        //  获取用户 id, 用于加锁
         Long userId = UserHolder.getUser().getId();
-        // TODO: 2023/10/26 这里的知识还欠缺的还挺多的
-        synchronized (userId.toString().intern()) {
-            //  获取原始的事务对象来操作事务
-            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-            return proxy.getResult(voucherId);
+
+        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
+        boolean isLock = lock.tryLock(1200);
+
+        if (!isLock) {
+            return Result.fail("不能重复下单哦~");
         }
+        /*
+        createVoucherOrder(voucherId)
+        this.createVoucherOrder(voucherId)
+        其实是this.的方式调用的，事务想要生效，
+        还得利用代理来生效，所以这个地方，我们需要获得原始的事务对象，
+        来操作事务获取原始的事务对象来操作事务
+        */
+        try {
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            return proxy.createVoucherOrder(voucherId);
+        } finally {
+            lock.unlock();
+        }
+
     }
 
     @Transactional
-    public Result getResult(Long voucherId) {
+    public Result createVoucherOrder(Long voucherId) {
         //  4. 判断用户是否重复下单
         Long userId = UserHolder.getUser().getId();
 
@@ -110,8 +131,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         save(voucherOrder);
 
         //  6. 返回数据
-
-
         return Result.ok(orderId);
     }
 }
