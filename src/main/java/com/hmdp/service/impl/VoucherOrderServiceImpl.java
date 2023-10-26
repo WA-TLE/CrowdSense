@@ -9,6 +9,7 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,7 +18,7 @@ import java.time.LocalDateTime;
 
 /**
  * <p>
- *  服务实现类
+ * 服务实现类
  * </p>
  *
  * @author dy
@@ -37,7 +38,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
      * @param voucherId
      * @return
      */
-    @Transactional
+
     public Result seckillVoucher(Long voucherId) {
 
         //  1.  根据 id 查询优惠卷信息
@@ -60,6 +61,26 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足!");
         }
 
+        Long userId = UserHolder.getUser().getId();
+        // TODO: 2023/10/26 这里的知识还欠缺的还挺多的
+        synchronized (userId.toString().intern()) {
+            //  获取原始的事务对象来操作事务
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            return proxy.getResult(voucherId);
+        }
+    }
+
+    @Transactional
+    public Result getResult(Long voucherId) {
+        //  4. 判断用户是否重复下单
+        Long userId = UserHolder.getUser().getId();
+
+
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+
+        if (count > 0) {
+            return Result.fail("您已经领取过优惠卷(*^▽^*)");
+        }
         //  4. 扣减库存
         boolean success = seckillVoucherService
                 .update()
@@ -80,7 +101,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         voucherOrder.setId(orderId);
 
         //  5.2 用户 id
-        Long userId = UserHolder.getUser().getId();
         voucherOrder.setUserId(userId);
 
         // 5.3 代金券 id
