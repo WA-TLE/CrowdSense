@@ -1,8 +1,11 @@
 package com.hmdp.utils;
 
 import cn.hutool.core.lang.UUID;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -26,7 +29,18 @@ public class SimpleRedisLock implements ILock {
      */
     private StringRedisTemplate stringRedisTemplate;
 
+    /**
+     * Redis 中的 value, 防止误删锁问题
+     */
     private static final String ID_PREFIX = UUID.randomUUID().toString(true) +"-";
+
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
+
+    static {
+        UNLOCK_SCRIPT = new DefaultRedisScript<>();
+        UNLOCK_SCRIPT.setLocation(new ClassPathResource("unlock.lua"));
+        UNLOCK_SCRIPT.setResultType(Long.class);
+    }
 
     public SimpleRedisLock(String name, StringRedisTemplate stringRedisTemplate) {
         this.name = name;
@@ -53,7 +67,21 @@ public class SimpleRedisLock implements ILock {
 
     /**
      * 释放锁
+     *
      */
+    public void unlock() {
+
+        // 调用lua脚本
+        stringRedisTemplate.execute(
+                UNLOCK_SCRIPT,          //  Collections.singletonList 将字符串转化为单一集合
+                Collections.singletonList(KEY_PREFIX + name),
+                ID_PREFIX + Thread.currentThread().getId());
+
+
+    }
+
+   /*
+    释放锁
     public void unlock() {
 
         //  获取原本应该有的 value
@@ -70,5 +98,5 @@ public class SimpleRedisLock implements ILock {
         //  否则的话, 说明自己的锁已经被释放了, 我们什么都不用做
 
 
-    }
+    }*/
 }
