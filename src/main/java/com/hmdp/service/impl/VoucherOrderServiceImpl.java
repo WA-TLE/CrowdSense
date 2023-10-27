@@ -10,6 +10,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private RedissonClient redissonClient;
 
     /**
      * 优惠卷秒杀
@@ -69,18 +74,20 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         //  获取用户 id, 用于加锁
         Long userId = UserHolder.getUser().getId();
 
-        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
-        boolean isLock = lock.tryLock(1200);
+//        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
+        RLock lock = redissonClient.getLock("lock:order:" + userId);
+
+        boolean isLock = lock.tryLock();
 
         if (!isLock) {
             return Result.fail("不能重复下单哦~");
         }
         /*
-        createVoucherOrder(voucherId)
-        this.createVoucherOrder(voucherId)
-        其实是this.的方式调用的，事务想要生效，
-        还得利用代理来生效，所以这个地方，我们需要获得原始的事务对象，
-        来操作事务获取原始的事务对象来操作事务
+            createVoucherOrder(voucherId)
+            this.createVoucherOrder(voucherId)
+            其实是this.的方式调用的，事务想要生效，
+            还得利用代理来生效，所以这个地方，我们需要获得原始的事务对象，
+            来操作事务获取原始的事务对象来操作事务
         */
         try {
             IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
@@ -93,7 +100,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Transactional
     public Result createVoucherOrder(Long voucherId) {
-        //  4. 判断用户是否重复下单
+        //  4. 判断用户是否重复领取优惠卷
         Long userId = UserHolder.getUser().getId();
 
 
@@ -117,7 +124,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         //  5. 创建订单
         VoucherOrder voucherOrder = new VoucherOrder();
 
-        //  5.1 获取 id
+        //  5.1 获取本次订单的  id
         long orderId = redisIdWorker.nextId("order");
         voucherOrder.setId(orderId);
 
