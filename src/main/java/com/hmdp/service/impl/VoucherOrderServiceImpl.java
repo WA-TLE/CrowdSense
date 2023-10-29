@@ -1,24 +1,29 @@
 package com.hmdp.service.impl;
 
 import com.hmdp.dto.Result;
-import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
-import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
-import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * <p>
@@ -29,6 +34,7 @@ import java.time.LocalDateTime;
  * @since 2023/10/16 10:06
  */
 @Service
+@Slf4j
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
     @Resource
     private ISeckillVoucherService seckillVoucherService;
@@ -42,37 +48,68 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private RedissonClient redissonClient;
 
-    /**
-     * 优惠卷秒杀
-     *
-     * @param voucherId
-     * @return
+    private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
+
+
+
+    /*
+    * lua 脚本需要用到的东西
+    * */
+    static {
+        SECKILL_SCRIPT = new DefaultRedisScript<>();
+        SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
+        SECKILL_SCRIPT.setResultType(Long.class);
+    }
+
+    /*
+        创建阻塞队列
      */
+    private BlockingQueue<VoucherOrder> orderTasks = new ArrayBlockingQueue<>(1024 * 1024);
 
-    public Result seckillVoucher(Long voucherId) {
+    //异步处理线程池
+    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
 
-        //  1.  根据 id 查询优惠卷信息
-        SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherId);
-        //  2. 判断日期是否符合要求
+    private IVoucherOrderService proxy ;
 
-        LocalDateTime beginTime = seckillVoucher.getBeginTime();
-        if (beginTime.isAfter(LocalDateTime.now())) {
-            return Result.fail("活动尚未开始");
+    //在类初始化之后执行，因为当这个类初始化好了之后，随时都是有可能要执行的
+    @PostConstruct
+    private void init() {
+        SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+    }
+
+
+    /*
+        创建匿名内部类, 让他实现 Runnable (线程任务), 线程池执行这里的业务
+        只要阻塞队列里面有东西, 这个类中的 run 方法就要执行, 所以要让这个类一初始化就来执行这个任务
+
+          怎么做?  Spring 提供的注解 @PostConstruct 当前类初始化完成后来执行
+
+     */
+    private class VoucherOrderHandler implements Runnable {
+        @Override
+        public void run() {
+            while (true) {
+                //  1. 获取阻塞队列中的元素
+                try {
+                    VoucherOrder voucherOrder = orderTasks.take();
+                    //  处理订单业务
+                    handleVoucherOrder(voucherOrder);
+                } catch (Exception e) {
+                    log.error("创建订单出现异常: ", e);
+                }
+                //  2. 创建订单
+            }
         }
+    }
 
-        LocalDateTime endTime = seckillVoucher.getEndTime();
-        if (endTime.isBefore(LocalDateTime.now())) {
-            return Result.fail("活动已经结束!");
-        }
+    /**
+     * 处理订单业务
+     * @param voucherOrder
+     */
+    private void handleVoucherOrder(VoucherOrder voucherOrder) {
 
-        //  3. 库存是否充足
-        Integer stock = seckillVoucher.getStock();
-        if (stock < 1) {
-            return Result.fail("库存不足!");
-        }
-
-        //  获取用户 id, 用于加锁
-        Long userId = UserHolder.getUser().getId();
+        //  获取用户 id, 用于加锁   todo
+        Long userId = voucherOrder.getUserId();
 
 //        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
         RLock lock = redissonClient.getLock("lock:order:" + userId);
@@ -80,7 +117,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         boolean isLock = lock.tryLock();
 
         if (!isLock) {
-            return Result.fail("不能重复下单哦~");
+           log.error("不能重复下单");
         }
         /*
             createVoucherOrder(voucherId)
@@ -90,54 +127,88 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             来操作事务获取原始的事务对象来操作事务
         */
         try {
-            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-            return proxy.createVoucherOrder(voucherId);
+            proxy.createVoucherOrder(voucherOrder);
         } finally {
             lock.unlock();
         }
 
     }
 
-    @Transactional
-    public Result createVoucherOrder(Long voucherId) {
-        //  4. 判断用户是否重复领取优惠卷
+    /**
+     *
+     * 优惠卷秒杀
+     *
+     * @param voucherId
+     * @return
+     */
+
+    public Result seckillVoucher(Long voucherId) {
+
+        //  获取用户
         Long userId = UserHolder.getUser().getId();
 
+        //  1. 执行 lua 脚本
+        Long result = stringRedisTemplate.execute(
+                SECKILL_SCRIPT,
+                Collections.emptyList(),
+                voucherId.toString(), userId.toString()
+        );
 
-        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        int r = result.intValue();
 
-        if (count > 0) {
-            return Result.fail("您已经领取过优惠卷(*^▽^*)");
-        }
-        //  4. 扣减库存
-        boolean success = seckillVoucherService
-                .update()
-                .setSql("stock = stock - 1")
-                .eq("voucher_id", voucherId)
-                .gt("stock", 0)
-                .update();
-
-        if (!success) {
-            return Result.fail("库存不足");
+        //  判断是否为 0
+        if (r != 0) {
+            //  代表没有购买资格
+            return Result.fail(r == 1 ? "库存不足" : "不能重复下单哦~");
         }
 
-        //  5. 创建订单
+        // TODO: 2023/10/28 保存到阻塞队列
+
+        //   2.1 创建订单
         VoucherOrder voucherOrder = new VoucherOrder();
 
-        //  5.1 获取本次订单的  id
+        //   2.2 获取本次订单的  id
         long orderId = redisIdWorker.nextId("order");
         voucherOrder.setId(orderId);
 
-        //  5.2 用户 id
+        //   2.3 用户 id
         voucherOrder.setUserId(userId);
 
-        // 5.3 代金券 id
+        //  2.4 代金券 id
         voucherOrder.setVoucherId(voucherId);
+        //  2.5 这里需要把上面封装的订单数据添加到阻塞队列中
+        orderTasks.add(voucherOrder);
 
-        //  5. 写入数据库
-        save(voucherOrder);
+        proxy = (IVoucherOrderService) AopContext.currentProxy();
 
-        //  6. 返回数据
+        //  返回订单 id
         return Result.ok(orderId);
+
     }
+
+    @Override
+    public void createVoucherOrder(VoucherOrder voucherOrder) {
+        Long userId = voucherOrder.getUserId();
+        // 5.1.查询订单
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherOrder.getVoucherId()).count();
+        // 5.2.判断是否存在
+        if (count > 0) {
+            // 用户已经购买过了
+            log.error("用户已经购买过了");
+            return ;
+        }
+
+        // 6.扣减库存
+        boolean success = seckillVoucherService.update()
+                .setSql("stock = stock - 1") // set stock = stock - 1
+                .eq("voucher_id", voucherOrder.getVoucherId()).gt("stock", 0) // where id = ? and stock > 0
+                .update();
+        if (!success) {
+            // 扣减失败
+            log.error("库存不足");
+            return ;
+        }
+        save(voucherOrder);
+    }
+
 }
