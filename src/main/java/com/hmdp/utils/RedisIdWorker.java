@@ -48,12 +48,13 @@ public class RedisIdWorker {
         //  2.1 获取当天日期, 精确到天
         String data = now.format(DateTimeFormatter.ofPattern("yyyy:MM:dd"));
 
-        //  2.2 自增长, 获取 Redis 的 key
+        //  2.2 自增长, 这里是让 Redis 和 key 对应的那个 value 自增长, 并且把它返回
         Long count = stringRedisTemplate.opsForValue().increment("icr:" + keyPrefix + ":" + data + ":");
 
         //  3. 拼接并返回
 
         //  这里的 count 并不会出现 null, 因为就算是到了当天的第一个订单, 我们 Redis 自增 id, 最初是 1
+        //  2023-10-29 20:52:50 补充: 最初创建 key 的时候, 对应的 value 是 1
         return timestamp << COUNT_BITS | count;
     }
 

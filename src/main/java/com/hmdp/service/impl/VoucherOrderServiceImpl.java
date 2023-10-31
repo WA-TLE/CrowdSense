@@ -82,7 +82,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         创建匿名内部类, 让他实现 Runnable (线程任务), 线程池执行这里的业务
         只要阻塞队列里面有东西, 这个类中的 run 方法就要执行, 所以要让这个类一初始化就来执行这个任务
 
-          怎么做?  Spring 提供的注解 @PostConstruct 当前类初始化完成后来执行
+        怎么做?  Spring 提供的注解 @PostConstruct 当前类初始化完成后来执行
 
      */
     private class VoucherOrderHandler implements Runnable {
@@ -97,7 +97,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 } catch (Exception e) {
                     log.error("创建订单出现异常: ", e);
                 }
-                //  2. 创建订单
             }
         }
     }
@@ -108,7 +107,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
      */
     private void handleVoucherOrder(VoucherOrder voucherOrder) {
 
-        //  获取用户 id, 用于加锁   todo
+        //  获取用户 id, 用于加锁   这里加锁是为了保险起见, 因为我们在 Redis 已经判断过一次了
         Long userId = voucherOrder.getUserId();
 
 //        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
@@ -189,6 +188,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Override
     public void createVoucherOrder(VoucherOrder voucherOrder) {
         Long userId = voucherOrder.getUserId();
+
+        //  这里的也是为了保险起见, 万一 Redis 突然宕机了呢
         // 5.1.查询订单
         int count = query().eq("user_id", userId).eq("voucher_id", voucherOrder.getVoucherId()).count();
         // 5.2.判断是否存在

@@ -72,7 +72,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
         stringRedisTemplate.opsForValue().set(key, jsonShopList);
 
 
-        // TODO: 2023/10/22 这里应该返回店铺类型信息
-        return null;
+
+        return Result.ok(shopTypeList);
     }
 }
