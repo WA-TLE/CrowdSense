@@ -10,6 +10,7 @@ import com.hmdp.service.IBlogService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -25,6 +26,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/blog")
+@Slf4j
 public class BlogController {
 
     @Resource
@@ -42,12 +44,17 @@ public class BlogController {
         return Result.ok(blog.getId());
     }
 
+    /**
+     * 给博客点赞
+     *
+     * @param id
+     * @return
+     */
     @PutMapping("/like/{id}")
     public Result likeBlog(@PathVariable("id") Long id) {
-        // 修改点赞数量
-        blogService.update()
-                .setSql("liked = liked + 1").eq("id", id).update();
-        return Result.ok();
+        log.info("开始点赞....");
+
+        return blogService.likeBlog(id);
     }
 
     @GetMapping("/of/me")
@@ -62,12 +69,24 @@ public class BlogController {
         return Result.ok(records);
     }
 
+    /**
+     * 分页查询
+     *
+     * @param current
+     * @return
+     */
     @GetMapping("/hot")
     public Result queryHotBlog(@RequestParam(value = "current", defaultValue = "1") Integer current) {
         return blogService.queryHotBlog(current);
     }
 
 
+    /**
+     * 查询单个博客
+     *
+     * @param id
+     * @return
+     */
     @GetMapping("/{id}")
     public Result queryBlogById(@PathVariable Long id) {
         return blogService.queryBlogById(id);
