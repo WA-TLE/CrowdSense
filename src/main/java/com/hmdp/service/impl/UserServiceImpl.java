@@ -134,8 +134,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         //  新建用户
         User user = User.builder()
                 .phone(phone)
-                .nickName(USER_NICK_NAME_PREFIX + RandomUtil
-                        .randomString(10))
+                .nickName(USER_NICK_NAME_PREFIX + RandomUtil.randomString(10))
+                .icon("")   //  防止用户转换为 Map 的时候出现空指针异常
                 .build();
 
         //  保存用户
