@@ -92,4 +92,19 @@ public class BlogController {
         return blogService.queryBlogById(id);
     }
 
+
+    /**
+     * 查询给博客点赞的用户
+     *
+     * @param id
+     * @return
+     */
+    @GetMapping("/likes/{id}")
+    public Result queryBlogLikes(@PathVariable Long id) {
+        return blogService.queryBlogLikes(id);
+    }
+
+
+
+
 }
