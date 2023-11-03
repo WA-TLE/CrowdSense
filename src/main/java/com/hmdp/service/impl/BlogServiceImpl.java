@@ -82,14 +82,14 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         //  查询 blog 相关用户, 将用户信息封装到 blog 中
         queryBlogUser(blog);
 
-        //  判断 blog 是否被点赞
+        //  查询 blog 是否被当前登录用户点赞
         isBlogLiked(blog);
 
         return Result.ok(blog);
     }
 
     /**
-     * 查询 blog 是否被点赞
+     * 查询 blog 是否被当前登录用户点赞
      *
      * @param blog
      */
@@ -159,6 +159,10 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         return Result.ok();
     }
 
+     /**
+     * 将用户的个人信息和博客捆绑显示(也就是该博客显示的有发布博客的作者)
+     * @param blog
+     */
     private void queryBlogUser(Blog blog) {
         Long userId = blog.getUserId();
         User user = userService.getById(userId);
@@ -167,16 +171,18 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     }
 
     /**
-     * 查询给博客点赞的用户
+     * 查询给博客点赞的前五名用户用户
      *
      * @param id
      * @return
      */
     public Result queryBlogLikes(Long id) {
+        //  根据博客的 id, 查询给本篇博客点赞的用户
+
         //  1. 首先获取 key
         String key = BLOG_LIKED_KEY + id;
 
-        //  2. 在 Redis 中查询
+        //  2. 在 Redis 中查询  (查询前 5 名)
         Set<String> top5 = stringRedisTemplate.opsForZSet().range(key, 0, 4);
 
         //  3. 排除无人给他点赞
