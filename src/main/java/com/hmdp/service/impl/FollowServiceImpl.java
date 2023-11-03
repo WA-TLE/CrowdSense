@@ -1,13 +1,25 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Follow;
 import com.hmdp.mapper.FollowMapper;
 import com.hmdp.service.IFollowService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+
+import javax.annotation.Resource;
+
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static com.hmdp.utils.RedisConstants.FOLLOW_KEY;
 
 /**
  * <p>
@@ -20,6 +32,13 @@ import org.springframework.stereotype.Service;
 @Service
 public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> implements IFollowService {
 
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private IUserService userService;
+
     /**
      * 关注 or 取关博主
      *
@@ -31,6 +50,8 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         //  1. 获取当前用户 id
         Long userId = UserHolder.getUser().getId();
 
+        String key = FOLLOW_KEY + userId;
+
         if (flag) {
             // 2. 关注当前博主
             Follow follow = new Follow();
@@ -38,13 +59,19 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
             follow.setUserId(userId);
 
             //  2.2 保存到数据库
-            save(follow);
+            boolean isSuccess = save(follow);
+            if (isSuccess) {
+                stringRedisTemplate.opsForSet().add(key, id.toString());
+            }
         } else {
             //  3. 取消关注
             //  3.2 从数据库取消关注
-            remove(new QueryWrapper<Follow>()
+            boolean isSuccess = remove(new QueryWrapper<Follow>()
                     .eq("user_id", userId)
                     .eq("follow_user_id", id));
+            if (isSuccess) {
+                stringRedisTemplate.opsForSet().remove(key, userId.toString());
+            }
         }
 
 
@@ -65,5 +92,39 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         Integer count = query().eq("user_id", userId)
                 .eq("follow_user_id", id).count();
         return Result.ok(count > 0);
+    }
+
+    /**
+     * 查询共同关注
+     *
+     * @param id
+     * @return
+     */
+    public Result followCommon(Long id) {
+        //  1. 获取当前用户 id
+        Long userId = UserHolder.getUser().getId();
+
+        //  2. 获取两个当前用户的 key 和博主用户的 key
+        String key1 = FOLLOW_KEY + userId;
+        String key2 = FOLLOW_KEY + id;
+
+        //  3. 求交集
+        Set<String> intersect = stringRedisTemplate.opsForSet().intersect(key1, key2);
+
+        //  4. 排除共同好友为 null 的情况
+        if (intersect == null || intersect.isEmpty()) {
+            return Result.ok();
+        }
+
+        //  5. 解析 集合
+        // 3.解析id集合
+        List<Long> ids = intersect.stream().map(Long::valueOf).collect(Collectors.toList());
+        // 4.查询用户
+        List<UserDTO> users = userService.listByIds(ids)
+                .stream()
+                .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
+                .collect(Collectors.toList());
+        return Result.ok(users);
+
     }
 }
