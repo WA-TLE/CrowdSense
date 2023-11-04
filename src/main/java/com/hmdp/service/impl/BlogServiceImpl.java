@@ -7,13 +7,16 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +27,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.hmdp.utils.RedisConstants.BLOG_LIKED_KEY;
+import static com.hmdp.utils.RedisConstants.FEED_KEY;
 
 /**
  * <p>
@@ -34,6 +38,7 @@ import static com.hmdp.utils.RedisConstants.BLOG_LIKED_KEY;
  * @since 2023/10/16 10:06
  */
 @Service
+@Slf4j
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
 
     @Resource
@@ -41,6 +46,9 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private IFollowService followService;
 
 
     /**
@@ -205,5 +213,45 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
 
         return Result.ok(userDTOS);
+    }
+
+    /**
+     * 保存博客
+     *
+     * @param blog
+     * @return
+     */
+    public Result saveBlog(Blog blog) {
+
+        //  1. 获取登录用户
+        UserDTO user = UserHolder.getUser();
+        //  2. 给博客添加所属者 id
+        blog.setUserId(user.getId());
+
+        // 3. 保存探店博文
+        if (!save(blog)) {
+            return Result.fail("报错博客失败");
+        }
+
+        //  4.1 推送博客到所有粉丝
+        //  4.2 查询该博主所拥有的粉丝数量
+        Long userId = user.getId();
+        List<Follow> follows = followService.query().eq("follow_user_id", userId).list();
+
+        //  4.3 给所有粉丝发消息
+        for (Follow follow : follows) {
+//            Long followId = follow.getId();
+            Long followId = follow.getUserId();
+            String key = FEED_KEY + followId;
+//            stringRedisTemplate.opsForZSet().add(key, followId.toString(), System.currentTimeMillis());
+            //                                      这里应该传相应博客的 id
+            stringRedisTemplate.opsForZSet().add(key, blog.getId().toString(), System.currentTimeMillis());
+
+            log.info("博主 {} 发送博客 {}, 推送给: {} ", userId, blog.getId(), followId);
+        }
+
+        // 返回id
+        return Result.ok(blog.getId());
+
     }
 }
