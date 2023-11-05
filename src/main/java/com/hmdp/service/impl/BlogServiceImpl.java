@@ -5,6 +5,7 @@ import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.Follow;
@@ -18,9 +19,11 @@ import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -216,7 +219,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     }
 
     /**
-     * 保存博客
+     * 保存博客 + 给粉丝信箱推送消息
      *
      * @param blog
      * @return
@@ -253,5 +256,76 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         // 返回id
         return Result.ok(blog.getId());
 
+    }
+
+    /**
+     * 好友关注, 滚动分页查询
+     *
+     * @param max
+     * @param offset
+     * @return
+     */
+    public Result queryBlogOfFollow(Long max, Integer offset) {
+        //  1. 获取当前用户
+        Long userId = UserHolder.getUser().getId();
+
+        //  2. 获取当前用户信箱
+        //  2. 取出信箱中的数据 (包括收到的博客 id, 和 该博客的 时间戳)
+        String key = FEED_KEY + userId;
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeByScoreWithScores(key, 0, max, offset, 2);
+
+        //  3. 判断信箱中的数据是否为空
+        if (typedTuples == null || typedTuples.isEmpty()) {
+            return Result.ok();
+        }
+        //  4. 解析信箱中的数据 (做一些其他的处理)
+        long minTime = 0;
+        int os = 1;
+        //  初始化大小, 防止后续扩容影响性能
+        List<Long> ids = new ArrayList<>(typedTuples.size());
+
+
+
+        for (ZSetOperations.TypedTuple<String> typedTuple : typedTuples) {
+
+            ids.add(Long.valueOf(typedTuple.getValue()));
+
+            long time = typedTuple.getScore().longValue();
+            if (time == minTime) {
+                os++;
+            } else {
+                os = 1;
+                minTime = time;
+            }
+        }
+
+        //  5. 根据 ids 查询对应的 博客 (确保有顺序的执行)
+
+//        String idStr = StrUtil.join(",", ids);
+//        List<Blog> blogs = query().in("id", ids).last("ORDER BY FIELD(id," + idStr + ")").list();
+        String idStr = StrUtil.join(",", ids);
+
+        log.info("收到这些人的推送: {}",idStr);
+
+        List<Blog> blogList = query().in("id", ids).last("ORDER BY FIELD(id, " + idStr+ " )").list();
+
+        //  6. 完善对应的博客信息
+        for (Blog blog : blogList) {
+            //  查询 blog 相关用户, 将用户信息封装到 blog 中
+            queryBlogUser(blog);
+
+            //  查询 blog 是否被当前登录用户点赞
+            isBlogLiked(blog);
+        }
+
+        //  7. 封装数据并返回
+        ScrollResult scrollResult = new ScrollResult();
+        scrollResult.setList(blogList);
+        scrollResult.setOffset(os);
+        scrollResult.setMinTime(minTime);
+
+
+        return Result.ok(scrollResult);
     }
 }
