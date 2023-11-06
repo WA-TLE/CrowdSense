@@ -111,9 +111,19 @@ public class UserController {
      *
      * @return
      */
-    @PostMapping
+    @PostMapping("/sign")   //  忘记加请求路径了 滑稽.jpg
     public Result signIn() {
         return userService.signIn();
+    }
+
+    /**
+     * 统计用户连续签到天数
+     *
+     * @return
+     */
+    @GetMapping("/sign/count")
+    public Result signInCount() {
+        return userService.signInCount();
     }
 
 }

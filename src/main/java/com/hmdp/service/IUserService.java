@@ -50,4 +50,12 @@ public interface IUserService extends IService<User> {
      * @return
      */
     Result signIn();
+
+
+    /**
+     * 统计用户连续签到天数
+     *
+     * @return
+     */
+    Result signInCount();
 }

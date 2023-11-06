@@ -16,6 +16,7 @@ import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -28,6 +29,7 @@ import javax.servlet.http.HttpSession;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -179,5 +181,64 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         //  5. 存入 Redis
         stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
         return Result.ok();
+    }
+
+    /**
+     * 统计用户连续签到天数
+     *
+     * @return
+     */
+    public Result signInCount() {
+        //  1. 获取当前用户 id
+        Long userid = UserHolder.getUser().getId();
+
+        log.info("统计用户: {} 连续签到天数", userid);
+
+        //  2. 获取当前日期
+        LocalDateTime now = LocalDateTime.now();
+
+        //  3. 拼接 key
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userid.toString() + keySuffix;
+
+        //  4. 获取今天是几号
+        int dayOfMonth = now.getDayOfMonth();
+
+        //  5. 获取截止到今天本月所有的签到记录
+        List<Long> result = stringRedisTemplate.opsForValue()
+                .bitField(
+                        key,
+                        BitFieldSubCommands.create()
+                                .get(BitFieldSubCommands.BitFieldType
+                                        .unsigned(dayOfMonth))
+                                .valueAt(0)
+                );
+
+        if (result == null || result.isEmpty()) {
+            return Result.ok(0);
+        }
+
+        //  获取截止到今天本月所有的签到记录 --> 十进制数
+        Long num = result.get(0);
+        log.info("连续签到所获得的十进制数: {}", num);
+
+        if (num == null || num == 0) {
+            return Result.ok(0);
+        }
+
+        //  遍历查询连续签到天数
+        int count = 0;
+        while (num > 0) {
+            if ((num & 1) == 1) {
+                count++;
+            } else {
+                break;
+            }
+
+            num = (num >> 1);
+        }
+
+        log.info("连续签到天数: {}", count);
+        return Result.ok(count);
     }
 }
