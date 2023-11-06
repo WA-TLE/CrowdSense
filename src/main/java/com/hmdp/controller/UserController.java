@@ -106,5 +106,14 @@ public class UserController {
         return Result.ok(userDTO);
     }
 
+    /**
+     * 用户签到功能
+     *
+     * @return
+     */
+    @PostMapping
+    public Result signIn() {
+        return userService.signIn();
+    }
 
 }

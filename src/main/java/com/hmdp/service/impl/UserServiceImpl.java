@@ -13,16 +13,20 @@ import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -149,5 +153,31 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         String key = LOGIN_USER_KEY + token;
         stringRedisTemplate.delete(key);
         return Result.ok("您已成功退出登录~");
+    }
+
+    /**
+     * 用户签到功能
+     *
+     * @return
+     */
+    public Result signIn() {
+        //  1. 获取当前用户 id
+        Long userid = UserHolder.getUser().getId();
+
+        log.info("用户: {}开始签到", userid);
+
+        //  2. 获取当前日期
+        LocalDateTime now = LocalDateTime.now();
+
+        //  3. 拼接 key
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userid.toString() + keySuffix;
+
+        //  4. 获取今天是几号
+        int dayOfMonth = now.getDayOfMonth();
+
+        //  5. 存入 Redis
+        stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
+        return Result.ok();
     }
 }
